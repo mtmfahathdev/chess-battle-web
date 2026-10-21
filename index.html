@@ -1,0 +1,308 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <!-- No page zoom: pinch zooms the camera instead. -->
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+  <meta name="theme-color" content="#0d0f0c">
+  <title>Chess Battle</title>
+  <!-- Link previews on X, WhatsApp, Discord, Slack... They need absolute URLs, so these point at the GitHub Pages site. -->
+  <meta name="description" content="3D fantasy chess against the computer, free in your browser. Built in Rust with Bevy.">
+  <meta property="og:type" content="website">
+  <meta property="og:title" content="Chess Battle">
+  <meta property="og:description" content="3D fantasy chess against the computer, free in your browser. Built in Rust with Bevy.">
+  <meta property="og:url" content="https://mtmfahathdev.github.io/chess-battle-web/">
+  <meta property="og:image" content="https://mtmfahathdev.github.io/chess-battle-web/share.jpg">
+  <meta property="og:image:width" content="1200">
+  <meta property="og:image:height" content="630">
+  <meta name="twitter:card" content="summary_large_image">
+  <meta name="twitter:title" content="Chess Battle">
+  <meta name="twitter:description" content="3D fantasy chess against the computer, free in your browser. Built in Rust with Bevy.">
+  <meta name="twitter:image" content="https://mtmfahathdev.github.io/chess-battle-web/share.jpg">
+  <link rel="icon" type="image/png" href="icon.png">
+  <!-- "Add to Home Screen" opens the game full screen, without the browser's bars. -->
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="apple-touch-icon" href="icon-180.png">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="Chess Battle">
+  <style>
+    html, body { margin: 0; height: 100%; background: #0d0f0c; overflow: hidden; }
+    body { font: 15px/1.4 system-ui, -apple-system, "Segoe UI", sans-serif; color: #e8e4d8; }
+    #game { position: fixed; inset: 0; }
+    #bevy { display: block; width: 100%; height: 100%; outline: none; touch-action: none; }
+    #loader {
+      position: fixed; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center;
+      gap: 18px; background: radial-gradient(ellipse at center, #1d2a1a 0%, #0d0f0c 70%); transition: opacity .6s ease;
+    }
+    #loader.done { opacity: 0; pointer-events: none; }
+    #loader h1 { margin: 0; font-size: clamp(28px, 6vw, 48px); letter-spacing: .08em; font-weight: 700; color: #f2d98a; }
+    #bar { width: min(320px, 70vw); height: 6px; border-radius: 3px; background: #ffffff1a; overflow: hidden; }
+    #fill { width: 0; height: 100%; background: linear-gradient(90deg, #c9a24a, #f2d98a); transition: width .15s linear; }
+    #status { min-height: 1.4em; color: #b9b4a4; font-size: 14px; text-align: center; padding: 0 16px; }
+    #status.error { color: #ff9b8a; }
+    body { -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; -webkit-tap-highlight-color: transparent; }
+
+    /* Round buttons in the bottom-right corner: full screen, and on touch screens the menu. */
+    #corner {
+      position: fixed; right: max(12px, env(safe-area-inset-right)); bottom: max(12px, env(safe-area-inset-bottom));
+      display: flex; gap: 10px; z-index: 2;
+    }
+    .round {
+      width: 48px; height: 48px; border-radius: 50%; border: 1px solid #f2d98a55; background: #0d0f0ccc; color: #f2d98a;
+      display: grid; place-items: center; cursor: pointer; padding: 0; backdrop-filter: blur(6px);
+    }
+    .round svg { width: 22px; height: 22px; }
+    .round[hidden] { display: none; }
+    #menu {
+      position: fixed; right: max(12px, env(safe-area-inset-right)); bottom: calc(max(12px, env(safe-area-inset-bottom)) + 60px);
+      width: min(300px, calc(100vw - 24px)); max-height: calc(100vh - 100px); overflow-y: auto; z-index: 2;
+      background: #0d0f0ce6; border: 1px solid #f2d98a40; border-radius: 14px; padding: 12px; box-sizing: border-box;
+      display: grid; grid-template-columns: 1fr 1fr; gap: 8px; backdrop-filter: blur(8px);
+    }
+    #menu[hidden] { display: none; }
+    #menu h2 { grid-column: 1 / -1; margin: 6px 0 0; font-size: 12px; letter-spacing: .1em; color: #b9b4a4; font-weight: 600; }
+    #menu h2:first-child { margin-top: 0; }
+    #menu button {
+      min-height: 44px; border-radius: 10px; border: 1px solid #ffffff1f; background: #ffffff10; color: #e8e4d8;
+      font: inherit; font-size: 14px; cursor: pointer;
+    }
+    #menu button:active, .round:active { background: #f2d98a33; }
+  </style>
+</head>
+<body>
+  <div id="game"><canvas id="bevy" tabindex="0"></canvas></div>
+  <div id="corner">
+    <button id="menu-button" class="round" aria-label="Menu" aria-expanded="false" hidden>
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 7h16M4 12h16M4 17h16"/></svg>
+    </button>
+    <button id="fullscreen" class="round" aria-label="Full screen (Enter)" title="Full screen (Enter)" hidden>
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/></svg>
+    </button>
+  </div>
+  <!-- The keyboard shortcuts, for touch screens. Each button presses the key in the game. -->
+  <div id="menu" hidden>
+    <h2>GAME</h2>
+    <button data-key="KeyN">New game</button>
+    <button data-key="KeyU">Undo</button>
+    <button data-key="KeyS">Switch sides</button>
+    <button data-key="KeyT">Hints</button>
+    <button data-key="KeyD">Demo</button>
+    <button data-key="Escape">Cancel</button>
+    <h2>DIFFICULTY</h2>
+    <button data-key="Digit1">Easy</button>
+    <button data-key="Digit2">Medium</button>
+    <button data-key="Digit3">Hard</button>
+    <button data-key="Digit4">Expert</button>
+    <h2>VIEW</h2>
+    <button data-key="KeyL">Lighting</button>
+    <button data-key="KeyM">Sound</button>
+    <button data-key="KeyC">Camera follow</button>
+    <button data-key="KeyF">Fast play</button>
+    <button data-key="KeyK">Lock camera</button>
+    <button data-key="KeyH">Hide menus</button>
+    <button data-key="KeyQ">Quality</button>
+    <button data-key="KeyP">Performance</button>
+  </div>
+  <div id="loader">
+    <h1>CHESS BATTLE</h1>
+    <div id="bar"><div id="fill"></div></div>
+    <div id="status">Starting…</div>
+  </div>
+  <script type="module">
+    const BUILD = "d1a416d211e0890839ca";
+    const canvas = document.getElementById("bevy");
+    const fill = document.getElementById("fill");
+    const status = document.getElementById("status");
+    const say = (text, error = false) => { status.textContent = text; status.classList.toggle("error", error); };
+
+    // Right-drag turns the camera, so keep the browser's menu out of the way.
+    canvas.addEventListener("contextmenu", (e) => e.preventDefault());
+
+    // iPhones and iPads mute web audio in silent mode unless the page plays media (iOS 17+).
+    if (navigator.audioSession) navigator.audioSession.type = "playback";
+
+    // Browsers keep sound muted until the player interacts with the page: wake every audio
+    // context the game made on each tap, click or key press until it is running. iOS only lets
+    // a tap start audio, and resuming isn't always enough there, so a silent sample is played too.
+    const contexts = [];
+    for (const name of ["AudioContext", "webkitAudioContext"]) {
+      const Original = window[name];
+      if (!Original) continue;
+      window[name] = new Proxy(Original, {
+        construct(target, args) { const ctx = new target(...args); contexts.push(ctx); return ctx; },
+      });
+    }
+    const wake = () => {
+      for (const ctx of contexts) {
+        if (ctx.state === "closed" || ctx.state === "running") continue;
+        ctx.resume().catch(() => {});
+        try {
+          const blip = ctx.createBufferSource();
+          blip.buffer = ctx.createBuffer(1, 1, ctx.sampleRate);
+          blip.connect(ctx.destination);
+          blip.start(0);
+        } catch {}
+      }
+    };
+    for (const type of ["touchend", "pointerup", "click", "keydown"]) document.addEventListener(type, wake, { capture: true });
+
+    // Phones, tablets and high-DPI screens report 2-3 device pixels per CSS pixel, which would mean
+    // shading up to 9 times as many pixels per frame for a picture that barely looks sharper. The
+    // game sizes its canvas from devicePixelRatio, so cap it. Chrome would otherwise measure device
+    // pixels directly (devicePixelContentBoxSize), so hide that and it falls back to the ratio too.
+    // Tablets and phones get 1: their GPUs can't shade 1.5x at 60 frames per second, and their
+    // screens are small enough that it barely shows. ?ratio=<number> sets the cap by hand.
+    const tablet = matchMedia("(pointer: coarse)").matches;
+    const MAX_PIXEL_RATIO = Number(new URLSearchParams(location.search).get("ratio")) || (tablet ? 1 : 1.5);
+    const realRatio = window.devicePixelRatio || 1;
+    if (realRatio > MAX_PIXEL_RATIO || MAX_PIXEL_RATIO < 1) {
+      Object.defineProperty(window, "devicePixelRatio", { get: () => MAX_PIXEL_RATIO, configurable: true });
+      if (window.ResizeObserverEntry) delete ResizeObserverEntry.prototype.devicePixelContentBoxSize;
+    }
+
+    // WebGPU is faster, but only Chromium's (Chrome, Edge, Android) runs the game well: on Safari,
+    // and so on every iPad and iPhone browser, it blinks or stays black. Everything else gets WebGL2.
+    // navigator.userAgentData exists only in Chromium; iPad Chrome is Safari underneath and lacks it.
+    // ?renderer=webgl2 or ?renderer=webgpu overrides the choice.
+    async function pickRenderer() {
+      const forced = new URLSearchParams(location.search).get("renderer");
+      if (forced === "webgl2" || forced === "webgpu") return forced;
+      if (!navigator.userAgentData || !navigator.gpu) return "webgl2";
+      try {
+        if (await navigator.gpu.requestAdapter()) return "webgpu";
+      } catch {}
+      return "webgl2";
+    }
+
+    // Downloads the game with a progress bar, then lets the browser compile it as it streams in.
+    async function fetchWithProgress(url) {
+      const response = await fetch(url);
+      if (!response.ok) throw new Error(`${url}: HTTP ${response.status}`);
+      // With compression the header gives the compressed size, so it is only a rough total.
+      const total = Number(response.headers.get("Content-Length")) || 0;
+      const encoded = response.headers.get("Content-Encoding");
+      let loaded = 0;
+      const reader = response.body.getReader();
+      const stream = new ReadableStream({
+        async pull(controller) {
+          const { done, value } = await reader.read();
+          if (done) { controller.close(); return; }
+          loaded += value.byteLength;
+          const mb = (loaded / 1048576).toFixed(1);
+          if (total && !encoded) {
+            fill.style.width = `${Math.min(100, (loaded / total) * 100)}%`;
+            say(`Downloading the game… ${mb} / ${(total / 1048576).toFixed(1)} MB`);
+          } else {
+            fill.style.width = `${Math.min(95, loaded / 300000)}%`;
+            say(`Downloading the game… ${mb} MB`);
+          }
+          controller.enqueue(value);
+        },
+      });
+      return new Response(stream, { headers: { "Content-Type": "application/wasm" } });
+    }
+
+    // ?stats: a readout of frame rate and how long the game's work takes per frame, measured
+    // around each animation frame callback (where the game updates and draws). Above ~16 ms a
+    // 60 Hz screen drops to 30 frames per second.
+    if (new URLSearchParams(location.search).has("stats")) {
+      const box = Object.assign(document.createElement("div"), { id: "stats" });
+      box.style.cssText = "position:fixed;left:50%;top:8px;transform:translateX(-50%);z-index:3;padding:6px 10px;border-radius:8px;background:#000c;color:#9f9;font:13px ui-monospace,monospace;white-space:pre;pointer-events:none";
+      document.body.append(box);
+      const raf = window.requestAnimationFrame.bind(window);
+      let work = [], frames = 0, since = performance.now();
+      window.requestAnimationFrame = (callback) => raf((time) => {
+        const start = performance.now();
+        callback(time);
+        work.push(performance.now() - start);
+      });
+      const count = () => { frames++; raf(count); };
+      raf(count);
+      setInterval(() => {
+        const now = performance.now(), fps = frames * 1000 / (now - since);
+        const sorted = work.slice().sort((x, y) => x - y);
+        const avg = sorted.reduce((x, y) => x + y, 0) / (sorted.length || 1);
+        const p90 = sorted[Math.floor(sorted.length * 0.9)] || 0;
+        box.textContent = `${fps.toFixed(0)} fps   work ${avg.toFixed(1)} ms (90%: ${p90.toFixed(1)} ms)   ${devicePixelRatio}x`;
+        work = []; frames = 0; since = now;
+      }, 1000);
+    }
+
+    // Full screen: the corner button, or Enter. Esc (or the browser) leaves it.
+    const root = document.documentElement;
+    const fullscreenButton = document.getElementById("fullscreen");
+    const canFullscreen = document.fullscreenEnabled || document.webkitFullscreenEnabled;
+    const isFullscreen = () => document.fullscreenElement || document.webkitFullscreenElement;
+    function toggleFullscreen() {
+      // Older Safari's webkit versions return nothing; the others reject if the browser says no.
+      const result = isFullscreen()
+        ? (document.exitFullscreen || document.webkitExitFullscreen).call(document)
+        : (root.requestFullscreen || root.webkitRequestFullscreen).call(root);
+      result?.catch?.((e) => console.warn("full screen refused:", e.message));
+      canvas.focus();
+    }
+    fullscreenButton.hidden = !canFullscreen;
+    fullscreenButton.addEventListener("click", toggleFullscreen);
+    document.addEventListener("keydown", (e) => {
+      if (e.code === "Enter" && canFullscreen && !e.repeat) toggleFullscreen();
+    }, { capture: true });
+
+    // Touch screens get the menu; with a mouse the keys are listed in the game.
+    const menu = document.getElementById("menu");
+    const menuButton = document.getElementById("menu-button");
+    const touchScreen = matchMedia("(pointer: coarse)").matches || new URLSearchParams(location.search).has("touch");
+    menuButton.hidden = !touchScreen;
+    const showMenu = (show) => { menu.hidden = !show; menuButton.setAttribute("aria-expanded", String(show)); };
+    menuButton.addEventListener("click", () => showMenu(menu.hidden));
+    canvas.addEventListener("pointerdown", () => showMenu(false));
+    // The game reads the keyboard from the canvas, so a button sends it the key it stands for.
+    const press = (code) => {
+      const key = code.startsWith("Key") ? code.slice(3).toLowerCase() : code.startsWith("Digit") ? code.slice(5) : code;
+      canvas.dispatchEvent(new KeyboardEvent("keydown", { code, key, bubbles: true }));
+      setTimeout(() => canvas.dispatchEvent(new KeyboardEvent("keyup", { code, key, bubbles: true })), 60);
+    };
+    for (const button of menu.querySelectorAll("button[data-key]")) {
+      button.addEventListener("click", () => press(button.dataset.key));
+    }
+
+    try {
+      if (BUILD.startsWith("__")) {
+        throw new Error("this is the page template; run tools/build_web.sh and open dist/web through a web server");
+      }
+      const renderer = await pickRenderer();
+      const { default: init } = await import(`./code/${BUILD}/${renderer}/chess-battle.js`);
+      const wasm = fetchWithProgress(`./code/${BUILD}/${renderer}/chess-battle_bg.wasm`);
+      try {
+        await init({ module_or_path: wasm });
+      } catch (e) {
+        // winit leaves `main` by throwing once the game loop is running; that is not an error.
+        if (!String(e?.message ?? e).includes("Using exceptions for control flow")) throw e;
+      }
+      fill.style.width = "100%";
+      say("Loading the board…");
+      canvas.focus();
+      // The engine reports asset/scene readiness and confirms that its warmup draws
+      // have prepared their pipelines. A fixed timeout can expose an unfinished scene.
+      const waitForGame = () => {
+        const state = window.chessLoading;
+        if (state?.failed) { say(state.message, true); return; }
+        if (state?.ready) {
+          const loader = document.getElementById("loader");
+          loader.classList.add("done");
+          loader.setAttribute("aria-hidden", "true");
+          canvas.focus();
+          return;
+        }
+        if (state?.message) say(state.message);
+        requestAnimationFrame(waitForGame);
+      };
+      waitForGame();
+    } catch (e) {
+      console.error(e);
+      say(`The game could not start: ${e?.message ?? e}. Try another browser, or add ?renderer=webgl2 to the address.`, true);
+    }
+  </script>
+</body>
+</html>
